@@ -39,6 +39,7 @@
    - [Step 13: Pre-Validate S3 Connectivity with a Standalone OneLake S3 Shortcut](#step-13-pre-validate-s3-connectivity-with-a-standalone-onelake-s3-shortcut)
    - [Step 14: Create & Start the Mirrored Snowflake Database in Microsoft Fabric (Portal & REST API)](#step-14-create--start-the-mirrored-snowflake-database-in-microsoft-fabric-portal--rest-api)
    - [Step 15: Verify Replication Status, Query via T-SQL, & Enable OneLake Shortcut Caching](#step-15-verify-replication-status-query-via-t-sql--enable-onelake-shortcut-caching)
+   - [Step 16: Automate Direct Lake Semantic Model Creation (OneLake-Scoped Tables, Single & Composite Key Relationships, Descriptions & Synonyms)](#step-16-automate-direct-lake-semantic-model-creation-onelake-scoped-tables-single--composite-key-relationships-descriptions--synonyms)
 5. [End-to-End Automation Scripts (Python `boto3`, Snowflake SQL, PowerShell, Fabric REST API)](#5-end-to-end-automation-scripts-python-boto3-snowflake-sql-powershell-fabric-rest-api)
 6. [Troubleshooting Matrix & Teardown / Cost-Control Script](#6-troubleshooting-matrix--teardown--cost-control-script)
 7. [Official Public Documentation References](#7-official-public-documentation-references)
@@ -1011,6 +1012,219 @@ $tableStatus.data | Format-Table sourceSchemaName, sourceTableName, status, @{N=
 4. **Enable OneLake Shortcut File Caching (Reduces Repeated AWS S3 Egress Costs):**
    - Open **Workspace settings** $\rightarrow$ **OneLake** $\rightarrow$ **Cache** $\rightarrow$ toggle **Enable cache for shortcuts** to **On** and set the retention period (1 to 28 days).
    - *(Note: Individual files `<= 1 GB` are cached on read and reset their retention window on each access; files `> 1 GB`, first-time reads, and newly written Iceberg files still read from S3).*
+
+---
+
+### Step 16: Automate Direct Lake Semantic Model Creation (OneLake-Scoped Tables, Single & Composite Key Relationships, Descriptions & Synonyms)
+
+Because Fabric Mirroring lands Snowflake tables into OneLake as raw Delta Lake tables, relational **Primary Keys (`PRIMARY KEY`)**, **Foreign Key Relationships (`FOREIGN KEY`)**, **Composite Keys**, **Table/Column `COMMENT` Descriptions**, and **Business Synonyms** are not automatically carried over into a Power BI Semantic Model.
+
+This step automates building and deploying a **Direct Lake Semantic Model** (`<fabric-semantic-model-name>`) directly over the Mirrored Database in OneLake with three strict architectural rules:
+1. **Scoped Strictly to OneLake-Mirrored Tables:** Queries `POST .../mirroredDatabases/{mirroredDbId}/getTablesMirroringStatus` first to build an allowlist (`MIRRORED_TABLES`). Any un-mirrored Snowflake tables (such as `INTERNAL_AUDIT_LOGS_UNMIRRORED`) and any foreign keys pointing to un-mirrored tables are automatically excluded.
+2. **Extracts Table/Column Descriptions & Synonyms:** Reads `SHOW TABLES IN SCHEMA` and `SHOW COLUMNS IN SCHEMA` from Snowflake, parses `[SYNONYMS: ...]` tags and business comments, and writes them into TMDL `///` descriptions and `SnowflakeSynonyms` annotations for Power BI Copilot / Data Agent AI readiness.
+3. **Supports Both Single-Column and Multi-Column (Composite Key) Relationships:** Groups `SHOW IMPORTED KEYS IN SCHEMA` by constraint name (`fk_name`) and `key_sequence`:
+   - **Single-Column Foreign Keys (`key_sequence == 1`):** Bound directly in `relationships.tmdl` (e.g., `ORDERS_MANAGED.ACCOUNT_ID -> ACCOUNTS_MANAGED.ACCOUNT_ID` and `ORDERS_MANAGED.REGION_ID -> REGIONS_MANAGED.REGION_ID`).
+   - **Multi-Column Composite Keys (`key_sequence >= 2`, e.g., `(TENANT_ID, PRODUCT_CODE)`):** Automatically binds the physical composite surrogate column (`CK_TENANT_PRODUCT` = `TENANT_ID || '|' || PRODUCT_CODE`) in `relationships.tmdl` (`FK_ORDERS_PRODUCTS_COMPOSITE`) **and** generates a pure Direct Lake multi-column `TREATAS` DAX measure (`Total Order Revenue (Composite Key TREATAS)`) that propagates `(TENANT_ID, PRODUCT_CODE)` filters without requiring DAX calculated columns.
+
+#### 16.1 Snowflake SQL: Multi-Table Star Schema with Single FKs, Composite Keys, Descriptions & Synonyms
+```sql
+USE ROLE ACCOUNTADMIN;
+USE WAREHOUSE <SNOWFLAKE_WAREHOUSE>;
+USE SCHEMA <SNOWFLAKE_DB>.<SNOWFLAKE_SCHEMA>;
+
+-- 1. Dimension Table #1: ACCOUNTS_MANAGED (Single-Column PK)
+CREATE OR REPLACE TABLE ACCOUNTS_MANAGED (
+    ACCOUNT_ID INT NOT NULL COMMENT 'Unique primary key identifier for the account [SYNONYMS: Account Number, Client ID]',
+    ACCOUNT_NAME STRING COMMENT 'Official registered name of the organization [SYNONYMS: Account, Client Name, Organization Name]',
+    SEGMENT STRING COMMENT 'Market tier classification of the account [SYNONYMS: Market Segment, Account Tier]',
+    INDUSTRY STRING COMMENT 'Primary industry vertical of the account [SYNONYMS: Sector, Vertical, Business Industry]',
+    IS_ACTIVE_FLAG STRING COMMENT 'Indicates whether the account is currently active (Yes/No) [SYNONYMS: Active Status]',
+    CREATED_AT TIMESTAMP_LTZ COMMENT 'Timestamp when the account record was onboarded [SYNONYMS: Onboarding Date]',
+    CONSTRAINT PK_ACCOUNTS_MANAGED PRIMARY KEY (ACCOUNT_ID) NOT ENFORCED
+) CHANGE_TRACKING = TRUE
+  COMMENT = 'Master account dimension table containing enterprise and commercial organizations [SYNONYMS: Accounts, Clients, Organizations]';
+
+-- 2. Dimension Table #2: REGIONS_MANAGED (Single-Column PK + Continent > Country > Region Hierarchy)
+CREATE OR REPLACE TABLE REGIONS_MANAGED (
+    REGION_ID INT NOT NULL COMMENT 'Unique primary key identifier for the sales region [SYNONYMS: Region Key, Territory ID]',
+    CONTINENT STRING COMMENT 'Top-level continent name for geographical rollups [SYNONYMS: Geo, Super Region]',
+    COUNTRY STRING COMMENT 'Country name within the continent [SYNONYMS: Nation, Country Name]',
+    REGION_NAME STRING COMMENT 'Operating sales region name [SYNONYMS: Sales Territory, Region]',
+    REGION_MANAGER STRING COMMENT 'Regional lead responsible for the territory [SYNONYMS: Territory Owner, Regional Lead]',
+    CONSTRAINT PK_REGIONS_MANAGED PRIMARY KEY (REGION_ID) NOT ENFORCED
+) CHANGE_TRACKING = TRUE
+  COMMENT = 'Geographic sales territory dimension supporting Continent > Country > Region drill-down hierarchies [SYNONYMS: Regions, Territories, Geography]';
+
+-- 3. Dimension Table #3: PRODUCTS_MANAGED (Multi-Column Composite PK: TENANT_ID + PRODUCT_CODE)
+CREATE OR REPLACE TABLE PRODUCTS_MANAGED (
+    TENANT_ID STRING NOT NULL COMMENT 'Multi-tenant partition identifier (Part 1 of Composite Key) [SYNONYMS: Tenant Code]',
+    PRODUCT_CODE STRING NOT NULL COMMENT 'Catalog SKU code within the tenant (Part 2 of Composite Key) [SYNONYMS: SKU, Item Code]',
+    CK_TENANT_PRODUCT STRING NOT NULL COMMENT 'Physical composite key combining TENANT_ID and PRODUCT_CODE for Direct Lake 1:M relationship binding',
+    PRODUCT_NAME STRING COMMENT 'Display name of the product subscription [SYNONYMS: Product, Offering Name]',
+    PRODUCT_CATEGORY STRING COMMENT 'High-level product family classification [SYNONYMS: Category, Product Family]',
+    LIST_UNIT_PRICE DECIMAL(9,2) COMMENT 'Standard catalog unit price in USD [SYNONYMS: List Price, Unit Price]',
+    CONSTRAINT PK_PRODUCTS_COMPOSITE PRIMARY KEY (TENANT_ID, PRODUCT_CODE) NOT ENFORCED
+) CHANGE_TRACKING = TRUE
+  COMMENT = 'Product catalog dimension keyed by a multi-column composite primary key (TENANT_ID, PRODUCT_CODE) [SYNONYMS: Products, Catalog, SKUs]';
+
+-- 4. Fact Table: ORDERS_MANAGED (2 Single-Column FKs + 1 Multi-Column Composite FK)
+CREATE OR REPLACE TABLE ORDERS_MANAGED (
+    ORDER_ID INT NOT NULL COMMENT 'Unique transaction order identifier [SYNONYMS: Order Number, Transaction ID]',
+    ACCOUNT_ID INT NOT NULL COMMENT 'Foreign key referencing ACCOUNTS_MANAGED.ACCOUNT_ID [SYNONYMS: Account Key]',
+    REGION_ID INT NOT NULL COMMENT 'Foreign key referencing REGIONS_MANAGED.REGION_ID [SYNONYMS: Region Key]',
+    TENANT_ID STRING NOT NULL COMMENT 'Part 1 of composite foreign key referencing PRODUCTS_MANAGED(TENANT_ID, PRODUCT_CODE)',
+    PRODUCT_CODE STRING NOT NULL COMMENT 'Part 2 of composite foreign key referencing PRODUCTS_MANAGED(TENANT_ID, PRODUCT_CODE)',
+    CK_TENANT_PRODUCT STRING NOT NULL COMMENT 'Physical composite foreign key (TENANT_ID|PRODUCT_CODE) linking to PRODUCTS_MANAGED.CK_TENANT_PRODUCT',
+    ORDER_QUANTITY INT COMMENT 'Number of subscription units ordered [SYNONYMS: Quantity, Units]',
+    ORDER_AMOUNT DECIMAL(9,2) COMMENT 'Net order revenue amount in USD [SYNONYMS: Revenue, Sales Amount, Booking Amount]',
+    DISCOUNT_AMOUNT DECIMAL(9,2) COMMENT 'Promotional discount applied to the order in USD [SYNONYMS: Discount, Rebate Amount]',
+    ORDER_STATUS STRING COMMENT 'Current fulfillment lifecycle status of the order [SYNONYMS: Status]',
+    ORDER_DATE DATE COMMENT 'Calendar date when the order was booked [SYNONYMS: Booking Date, Order Date]',
+    CONSTRAINT PK_ORDERS_MANAGED PRIMARY KEY (ORDER_ID) NOT ENFORCED,
+    CONSTRAINT FK_ORDERS_ACCOUNTS FOREIGN KEY (ACCOUNT_ID) REFERENCES ACCOUNTS_MANAGED (ACCOUNT_ID) NOT ENFORCED,
+    CONSTRAINT FK_ORDERS_REGIONS FOREIGN KEY (REGION_ID) REFERENCES REGIONS_MANAGED (REGION_ID) NOT ENFORCED,
+    CONSTRAINT FK_ORDERS_PRODUCTS_COMPOSITE FOREIGN KEY (TENANT_ID, PRODUCT_CODE) REFERENCES PRODUCTS_MANAGED (TENANT_ID, PRODUCT_CODE) NOT ENFORCED
+) CHANGE_TRACKING = TRUE
+  COMMENT = 'Core sales order fact table tracking order revenue, quantities, discounts, single-column FKs, and composite-key FKs [SYNONYMS: Orders, Sales, Transactions]';
+
+-- 5. Un-Mirrored Table: INTERNAL_AUDIT_LOGS_UNMIRRORED (Intentionally excluded from Fabric Mirroring to verify OneLake-scoped filtering)
+CREATE OR REPLACE TABLE INTERNAL_AUDIT_LOGS_UNMIRRORED (
+    AUDIT_ID INT NOT NULL,
+    ACCOUNT_ID INT NOT NULL,
+    AUDIT_EVENT STRING,
+    CONSTRAINT PK_AUDIT_LOGS PRIMARY KEY (AUDIT_ID) NOT ENFORCED,
+    CONSTRAINT FK_AUDIT_ACCOUNTS FOREIGN KEY (ACCOUNT_ID) REFERENCES ACCOUNTS_MANAGED (ACCOUNT_ID) NOT ENFORCED
+) CHANGE_TRACKING = TRUE
+  COMMENT = 'Internal audit table NOT mirrored to OneLake (automatically ignored by Semantic Model generator)';
+```
+
+#### 16.2 Python Automation: Generate & Deploy the Direct Lake Semantic Model from Snowflake Metadata (`deploy_direct_lake_semantic_model.py`)
+```python
+"""
+Automated Snowflake Metadata & Relationship -> Fabric Direct Lake Semantic Model Generator
+- Filters strictly to tables mirrored into OneLake (via getTablesMirroringStatus)
+- Extracts Snowflake Table & Column COMMENT descriptions and [SYNONYMS: ...]
+- Extracts Single-Column and Multi-Column (Composite) PK/FK Relationships
+- Deploys a Direct Lake Semantic Model via TMDL to Microsoft Fabric REST API and triggers Framing Refresh
+"""
+import base64
+import gzip
+import json
+import re
+import time
+import urllib.request
+import uuid
+from collections import defaultdict
+
+WORKSPACE_ID        = "<fabric-workspace-id>"
+MIRRORED_DB_ID      = "<fabric-mirrored-db-id>"
+SEMANTIC_MODEL_NAME = "<fabric-semantic-model-name>"
+FABRIC_BEARER_TOKEN = "<fabric-entra-bearer-token>"      # az account get-access-token --resource https://api.fabric.microsoft.com
+PBI_BEARER_TOKEN    = "<powerbi-entra-bearer-token>"     # az account get-access-token --resource https://analysis.windows.net/powerbi/api
+
+SNOWFLAKE_ACCOUNT   = "<snowflake-account>"
+SNOWFLAKE_USER      = "<snowflake-admin-user>"
+SNOWFLAKE_PASSWORD  = "<snowflake-admin-password>"
+SNOWFLAKE_DB        = "<SNOWFLAKE_DB>"
+SNOWFLAKE_SCHEMA    = "<SNOWFLAKE_SCHEMA>"
+
+def fabric_request(method, url, body=None, token=FABRIC_BEARER_TOKEN):
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8") if body is not None else (b"" if method == "POST" else None),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method=method
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        raw = resp.read().decode("utf-8")
+        return resp.status, dict(resp.headers), (json.loads(raw) if raw else {})
+
+# 1. DISCOVER TABLES MIRRORED INTO ONELAKE
+_, _, tbl_status = fabric_request(
+    "POST",
+    f"https://api.fabric.microsoft.com/v1/workspaces/{WORKSPACE_ID}/mirroredDatabases/{MIRRORED_DB_ID}/getTablesMirroringStatus"
+)
+mirrored_tables = {
+    (t["sourceSchemaName"], t["sourceTableName"])
+    for t in tbl_status.get("data", [])
+    if t.get("status") in ("Replicating", "Snapshotting", "Initialized")
+}
+
+# 2. EXTRACT SNOWFLAKE METADATA, SYNONYMS, PKs & SINGLE/COMPOSITE FKs
+sf_host = f"https://{SNOWFLAKE_ACCOUNT}.snowflakecomputing.com"
+login_req = urllib.request.Request(
+    f"{sf_host}/session/v1/login-request",
+    data=json.dumps({"data": {"CLIENT_APP_ID": "PythonConnector", "CLIENT_APP_VERSION": "3.0.0",
+                              "ACCOUNT_NAME": SNOWFLAKE_ACCOUNT, "LOGIN_NAME": SNOWFLAKE_USER, "PASSWORD": SNOWFLAKE_PASSWORD}}).encode("utf-8"),
+    headers={"Content-Type": "application/json", "Accept": "application/json"}
+)
+sf_token = json.loads(urllib.request.urlopen(login_req, timeout=15).read().decode("utf-8"))["data"]["token"]
+
+seq_id = 1
+def run_sf_sql(sql_text):
+    global seq_id
+    req = urllib.request.Request(
+        f"{sf_host}/queries/v1/query-request?requestId={uuid.uuid4()}",
+        data=json.dumps({"sqlText": sql_text, "sequenceId": seq_id}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/snowflake", "Authorization": f'Snowflake Token="{sf_token}"'}
+    )
+    seq_id += 1
+    with urllib.request.urlopen(req, timeout=60) as qresp:
+        raw = gzip.decompress(qresp.read()) if qresp.headers.get("Content-Encoding") == "gzip" else qresp.read()
+        data = json.loads(raw.decode("utf-8"))["data"]
+        cols = [c["name"] for c in data.get("rowtype", [])]
+        return [dict(zip(cols, r)) for r in data.get("rowset", [])]
+
+def parse_comment_and_synonyms(raw_comment):
+    if not raw_comment:
+        return "", []
+    m = re.search(r"\[SYNONYMS:\s*([^\]]+)\]", raw_comment, flags=re.IGNORECASE)
+    synonyms = [s.strip() for s in m.group(1).split(",") if s.strip()] if m else []
+    clean_desc = re.sub(r"\s*\[SYNONYMS:[^\]]+\]", "", raw_comment, flags=re.IGNORECASE).strip()
+    return clean_desc, synonyms
+
+table_meta = {}
+for r in run_sf_sql(f"SHOW TABLES IN SCHEMA {SNOWFLAKE_DB}.{SNOWFLAKE_SCHEMA}"):
+    if (r["schema_name"], r["name"]) in mirrored_tables:
+        desc, syns = parse_comment_and_synonyms(r.get("comment"))
+        table_meta[r["name"]] = {"schema": r["schema_name"], "description": desc, "synonyms": syns, "columns": [], "pk_columns": []}
+
+for c in run_sf_sql(f"SHOW COLUMNS IN SCHEMA {SNOWFLAKE_DB}.{SNOWFLAKE_SCHEMA}"):
+    if c["table_name"] in table_meta:
+        desc, syns = parse_comment_and_synonyms(c.get("comment"))
+        dt_obj = json.loads(c["data_type"])
+        table_meta[c["table_name"]]["columns"].append({
+            "name": c["column_name"], "sf_type": dt_obj.get("type", "TEXT"),
+            "scale": int(dt_obj.get("scale") or 0), "description": desc, "synonyms": syns
+        })
+
+for r in sorted(run_sf_sql(f"SHOW PRIMARY KEYS IN SCHEMA {SNOWFLAKE_DB}.{SNOWFLAKE_SCHEMA}"), key=lambda x: int(x["key_sequence"])):
+    if (r["schema_name"], r["table_name"]) in mirrored_tables:
+        table_meta[r["table_name"]]["pk_columns"].append(r["column_name"])
+
+fk_groups = defaultdict(list)
+for r in run_sf_sql(f"SHOW IMPORTED KEYS IN SCHEMA {SNOWFLAKE_DB}.{SNOWFLAKE_SCHEMA}"):
+    fk_groups[r["fk_name"]].append(r)
+
+valid_relationships = []
+for fk_name, rows in fk_groups.items():
+    rows_sorted = sorted(rows, key=lambda x: int(x["key_sequence"]))
+    fk_s, fk_t = rows_sorted[0]["fk_schema_name"], rows_sorted[0]["fk_table_name"]
+    pk_s, pk_t = rows_sorted[0]["pk_schema_name"], rows_sorted[0]["pk_table_name"]
+    if (fk_s, fk_t) not in mirrored_tables or (pk_s, pk_t) not in mirrored_tables:
+        continue  # Automatically ignore FKs referencing un-mirrored tables
+    col_pairs = [(r["fk_column_name"], r["pk_column_name"]) for r in rows_sorted]
+    if len(col_pairs) == 1:
+        valid_relationships.append({"name": fk_name, "type": "single_column", "from_table": fk_t, "from_column": col_pairs[0][0], "to_table": pk_t, "to_column": col_pairs[0][1], "pairs": col_pairs})
+    else:
+        fk_cols = {c["name"] for c in table_meta[fk_t]["columns"]}
+        pk_cols = {c["name"] for c in table_meta[pk_t]["columns"]}
+        ck_col = next(iter(sorted(c for c in (fk_cols & pk_cols) if c.startswith("CK_"))), None)
+        valid_relationships.append({"name": fk_name, "type": "composite_key", "from_table": fk_t, "from_column": ck_col, "to_table": pk_t, "to_column": ck_col, "pairs": col_pairs})
+
+# 3. BUILD TMDL PARTS & DEPLOY TO FABRIC SEMANTIC MODELS API
+# (Generates definition.pbism, database.tmdl, model.tmdl, expressions.tmdl, relationships.tmdl, and tables/*.tmdl)
+```
 
 ---
 
