@@ -173,34 +173,34 @@ When executing the scripts in **Section 4** and **Section 5**, replace these mas
 | `<opdg-ec2-instance-id>` | `i-0abc123def4567890` | Windows Server 2022 EC2 Instance ID running the OPDG |
 | `<opdg-gateway-ip>` | `203.0.113.50` | Public/Elastic IP (or Private IP over PrivateLink) of the EC2 Gateway VM |
 | `<admin-workstation-ip>` | `198.51.100.25` | Your admin workstation IP for initial setup/management |
-| `<snowflake-iceberg-iam-role>` | `SnowflakeIcebergRole` | AWS IAM Role assumed by Snowflake's External Volume |
-| `<fabric-s3-iam-user>` | `fabric-s3-shortcut-user` | AWS IAM User (or OIDC Role) used by Fabric's S3 connection |
+| `<snowflake-iceberg-iam-role>` | `<snowflake-iceberg-iam-role>` | AWS IAM Role assumed by Snowflake's External Volume |
+| `<fabric-s3-iam-user>` | `<fabric-s3-iam-user>` | AWS IAM User (or OIDC Role) used by Fabric's S3 connection |
 | `<aws-access-key-id>` | `AKIAXXXXXXXXXXXXXXXX` | Access Key ID for `<fabric-s3-iam-user>` |
 | `<aws-secret-access-key>` | `****************************************` | Secret Access Key for `<fabric-s3-iam-user>` |
 | `<snowflake-account>` | `orgname-acctname` | Snowflake account identifier (`<snowflake-account>.snowflakecomputing.com`) |
-| `<snowflake-mirror-user>` | `SVC_FABRIC_MIRROR_USER` | Snowflake user configured in the Fabric Snowflake connection |
+| `<snowflake-mirror-user>` | `<snowflake-mirror-user>` | Snowflake user configured in the Fabric Snowflake connection |
 | `<snowflake-mirror-password>` | `********************` | Password (or RSA Private Key) for `<snowflake-mirror-user>` |
-| `<SNOWFLAKE_WAREHOUSE>` | `COMPUTE_WH` | Uppercase/exact-case Snowflake virtual warehouse name |
-| `<SNOWFLAKE_DB>` | `FABRIC_ICEBERG_POC_DB` | Uppercase/exact-case Snowflake database name |
-| `<SNOWFLAKE_SCHEMA>` | `POC_SCHEMA` | Uppercase/exact-case Snowflake schema name |
-| `<EXTERNAL_VOLUME_NAME>` | `EXVOL_FABRIC_ICEBERG_S3` | Snowflake External Volume object name |
+| `<SNOWFLAKE_WAREHOUSE>` | `<SNOWFLAKE_WAREHOUSE>` | Uppercase/exact-case Snowflake virtual warehouse name |
+| `<SNOWFLAKE_DB>` | `<SNOWFLAKE_DB>` | Uppercase/exact-case Snowflake database name |
+| `<SNOWFLAKE_SCHEMA>` | `<SNOWFLAKE_SCHEMA>` | Uppercase/exact-case Snowflake schema name |
+| `<EXTERNAL_VOLUME_NAME>` | `<EXTERNAL_VOLUME_NAME>` | Snowflake External Volume object name |
 | `<snowflake-aws-iam-user-arn>` | `arn:aws:iam::111122223333:user/xxxx-s` | Returned by `DESC EXTERNAL VOLUME` in Snowflake |
 | `<snowflake-aws-external-id>` | `ABC12345_SFCRole=5_xxxxxxxxxxxx=` | Returned by `DESC EXTERNAL VOLUME` in Snowflake |
-| `<opdg-cluster-name>` | `AWS-OPDG-CLUSTER-POC` | Name of the On-Premises Data Gateway cluster registered in Fabric |
+| `<opdg-cluster-name>` | `<opdg-cluster-name>` | Name of the On-Premises Data Gateway cluster registered in Fabric |
 | `<opdg-gateway-cluster-id>` | `00000000-0000-0000-0000-000000000001` | GUID of the registered OPDG cluster in Fabric |
 | `<fabric-snowflake-connection-id>` | `00000000-0000-0000-0000-000000000002` | GUID of the gateway-routed Snowflake connection in Fabric |
 | `<fabric-s3-connection-id>` | `00000000-0000-0000-0000-000000000003` | GUID of the gateway-routed Amazon S3 connection in Fabric |
 | `<fabric-workspace-id>` | `00000000-0000-0000-0000-000000000004` | GUID of the target Microsoft Fabric workspace |
 | `<fabric-lakehouse-id>` | `00000000-0000-0000-0000-000000000005` | GUID of the Fabric Lakehouse used for standalone S3 shortcut testing |
 | `<fabric-mirrored-db-id>` | `00000000-0000-0000-0000-000000000006` | GUID of the Mirrored Snowflake Database item in Fabric |
-| `<SNOWFLAKE_MIRROR_ROLE>` | `FABRIC_MIRROR_ROLE` | Snowflake role granted `USAGE`, `CREATE STREAM`, and `SELECT` privileges |
-| `<snowflake-admin-user>` | `ADMIN_USER` | `ACCOUNTADMIN` Snowflake user used for initial provisioning |
+| `<SNOWFLAKE_MIRROR_ROLE>` | `<SNOWFLAKE_MIRROR_ROLE>` | Snowflake role granted `USAGE`, `CREATE STREAM`, and `SELECT` privileges |
+| `<snowflake-admin-user>` | `<snowflake-admin-user>` | `ACCOUNTADMIN` Snowflake user used for initial provisioning |
 | `<snowflake-admin-password>` | `********************` | Password for `<snowflake-admin-user>` |
 | `<fabric-entra-bearer-token>` | `eyJ0eXAiOiJKV1QiLC...` | Entra ID token from `az account get-access-token --resource https://api.fabric.microsoft.com` |
 | `<entra-tenant-id>` | `00000000-0000-0000-0000-000000000007` | Microsoft Entra ID Tenant GUID (Option 6B OIDC only) |
 | `<entra-client-id>` | `00000000-0000-0000-0000-000000000008` | Microsoft Entra App Registration Client ID (Option 6B OIDC only) |
 | `<entra-enterprise-sp-object-id>` | `00000000-0000-0000-0000-000000000009` | Enterprise Application Object ID used in AWS OIDC `sub` claim (Option 6B OIDC only) |
-| `<fabric-s3-oidc-role>` | `FabricOneLakeS3OIDCRole` | AWS IAM Role assumed by Fabric via Entra OIDC Federation (Option 6B OIDC only) |
+| `<fabric-s3-oidc-role>` | `<fabric-s3-oidc-role>` | AWS IAM Role assumed by Fabric via Entra OIDC Federation (Option 6B OIDC only) |
 
 ---
 
@@ -798,7 +798,7 @@ In the **New connection** pane:
   - **If using AWS PrivateLink (Step 7.2 Production):** `<snowflake-account>.privatelink.snowflakecomputing.com`
   - **If using IP-allowlisted public endpoint (Step 7.2 POC Alternative):** `<snowflake-account>.snowflakecomputing.com`
   - *(Important: Do NOT include `https://`, and use lowercase for the hostname)*
-- **Warehouse:** `<SNOWFLAKE_WAREHOUSE>` *(Important: Match exact uppercase/lowercase casing in Snowflake, e.g., `COMPUTE_WH`)*
+- **Warehouse:** `<SNOWFLAKE_WAREHOUSE>` *(Important: Match exact uppercase/lowercase casing in Snowflake, e.g., `<SNOWFLAKE_WAREHOUSE>`)*
 - **Authentication method:** Select `Snowflake` (or `KeyPair` / `Microsoft Account`)
 - **Username:** `<snowflake-mirror-user>`
 - **Password:** `<snowflake-mirror-password>`
@@ -1263,11 +1263,11 @@ SNOWFLAKE_ADMIN_USER       = "<snowflake-admin-user>"       # ACCOUNTADMIN user 
 SNOWFLAKE_ADMIN_PASSWORD   = "<snowflake-admin-password>"
 SNOWFLAKE_MIRROR_USER      = "<snowflake-mirror-user>"      # Service user for Fabric Mirroring
 SNOWFLAKE_MIRROR_PASSWORD  = "<snowflake-mirror-password>"
-SNOWFLAKE_MIRROR_ROLE      = "<SNOWFLAKE_MIRROR_ROLE>"      # e.g., "FABRIC_MIRROR_ROLE"
-SNOWFLAKE_WAREHOUSE        = "<SNOWFLAKE_WAREHOUSE>"        # e.g., "COMPUTE_WH"
-SNOWFLAKE_DB               = "<SNOWFLAKE_DB>"               # e.g., "FABRIC_ICEBERG_POC_DB"
-SNOWFLAKE_SCHEMA           = "<SNOWFLAKE_SCHEMA>"           # e.g., "POC_SCHEMA"
-EXTERNAL_VOLUME_NAME       = "<EXTERNAL_VOLUME_NAME>"       # e.g., "EXVOL_FABRIC_ICEBERG_S3"
+SNOWFLAKE_MIRROR_ROLE      = "<SNOWFLAKE_MIRROR_ROLE>"      
+SNOWFLAKE_WAREHOUSE        = "<SNOWFLAKE_WAREHOUSE>"        
+SNOWFLAKE_DB               = "<SNOWFLAKE_DB>"               
+SNOWFLAKE_SCHEMA           = "<SNOWFLAKE_SCHEMA>"           
+EXTERNAL_VOLUME_NAME       = "<EXTERNAL_VOLUME_NAME>"       
 
 FABRIC_BEARER_TOKEN        = "<fabric-entra-bearer-token>"  # From: az account get-access-token --resource https://api.fabric.microsoft.com
 FABRIC_WORKSPACE_ID        = "<fabric-workspace-id>"
@@ -1629,7 +1629,7 @@ if st.get("status") != "Running":
 | Symptom / Error | Root Cause | Resolution |
 |---|---|---|
 | **Mirroring fails or hangs when OPDG / VNet Gateway is selected** | `PREVENT_UNLOAD_TO_INLINE_URL` is set to `TRUE` on the Snowflake account. | Run `ALTER ACCOUNT SET PREVENT_UNLOAD_TO_INLINE_URL = FALSE;` in Snowflake as `ACCOUNTADMIN`. |
-| **Connection succeeds, but database/tables do not appear in Fabric** | Casing mismatch on Warehouse, Database, or Schema name. | Snowflake identifiers in Fabric are strictly case-sensitive (`COMPUTE_WH` $\neq$ `compute_wh`). Match exact Snowflake casing. |
+| **Connection succeeds, but database/tables do not appear in Fabric** | Casing mismatch on Warehouse, Database, or Schema name. | Snowflake identifiers in Fabric are strictly case-sensitive (`<SNOWFLAKE_WAREHOUSE>` $\neq$ `<snowflake_warehouse>`). Match exact Snowflake casing. |
 | **`Import-Module DataGateway` fails on Windows Server 2022 with PowerShell 5.1 error** | The `DataGateway` PowerShell module (`3000.318+`) requires **PowerShell 7.4+**. | Install `PowerShell-7.4.6-win-x64.msi` and run `Install-DataGateway` inside `pwsh.exe`. |
 | **S3 Shortcut returns `403 Forbidden` on SSE-KMS encrypted bucket** | Missing KMS key permissions on the IAM user/role or Bucket Key mismatch. | Grant `kms:Decrypt` and `kms:GenerateDataKey` on the KMS key ARN to `<fabric-s3-iam-user>`. |
 | **Snowflake `CREATE ICEBERG TABLE` fails with `not authorized to perform: sts:AssumeRole` on a brand-new AWS Free Plan account** | AWS Free Plan starter accounts belong to an AWS-managed Organization that blocks cross-account `sts:AssumeRole` via an SCP. | Click **Upgrade plan** in AWS Billing (free; keeps your $100 credit) to remove the Free Plan sandbox SCP. |

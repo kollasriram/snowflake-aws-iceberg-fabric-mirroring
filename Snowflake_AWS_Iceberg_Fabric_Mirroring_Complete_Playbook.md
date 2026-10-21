@@ -1629,7 +1629,7 @@ if st.get("status") != "Running":
 | Symptom / Error | Root Cause | Resolution |
 |---|---|---|
 | **Mirroring fails or hangs when OPDG / VNet Gateway is selected** | `PREVENT_UNLOAD_TO_INLINE_URL` is set to `TRUE` on the Snowflake account. | Run `ALTER ACCOUNT SET PREVENT_UNLOAD_TO_INLINE_URL = FALSE;` in Snowflake as `ACCOUNTADMIN`. |
-| **Connection succeeds, but database/tables do not appear in Fabric** | Casing mismatch on Warehouse, Database, or Schema name. | Snowflake identifiers in Fabric are strictly case-sensitive (`COMPUTE_WH` $\neq$ `compute_wh`). Match exact Snowflake casing. |
+| **Connection succeeds, but database/tables do not appear in Fabric** | Casing mismatch on Warehouse, Database, or Schema name. | Snowflake identifiers in Fabric are strictly case-sensitive (`<SNOWFLAKE_WAREHOUSE>` $\neq$ `<snowflake_warehouse>`). Match exact Snowflake casing. |
 | **`Import-Module DataGateway` fails on Windows Server 2022 with PowerShell 5.1 error** | The `DataGateway` PowerShell module (`3000.318+`) requires **PowerShell 7.4+**. | Install `PowerShell-7.4.6-win-x64.msi` and run `Install-DataGateway` inside `pwsh.exe`. |
 | **S3 Shortcut returns `403 Forbidden` on SSE-KMS encrypted bucket** | Missing KMS key permissions on the IAM user/role or Bucket Key mismatch. | Grant `kms:Decrypt` and `kms:GenerateDataKey` on the KMS key ARN to `<fabric-s3-iam-user>`. |
 | **Snowflake `CREATE ICEBERG TABLE` fails with `not authorized to perform: sts:AssumeRole` on a brand-new AWS Free Plan account** | AWS Free Plan starter accounts belong to an AWS-managed Organization that blocks cross-account `sts:AssumeRole` via an SCP. | Click **Upgrade plan** in AWS Billing (free; keeps your $100 credit) to remove the Free Plan sandbox SCP. |
