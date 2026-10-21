@@ -5,7 +5,7 @@
 **Security Note:** All actual project IDs, account locators, bucket names, service account emails, HMAC keys, IP addresses, GUIDs, and credentials in this document are masked with standardized placeholders (`<...>`).
 
 > **Important Note — Google Cloud Free Trial Organization Policies (`iam.disableServiceAccountKeyCreation`):**
-> * **Snowflake External Volume to GCS (`STORAGE_PROVIDER = 'GCS'`):** Uses a Snowflake-generated GCP Service Account (`STORAGE_GCP_SERVICE_ACCOUNT`, e.g., `<snowflake-gcp-service-account>@gcpuscentral1-1dfa.iam.gserviceaccount.com`) granted `roles/storage.admin` on your GCS bucket. Because this uses cross-project IAM principal authorization rather than external service account keys, **Snowflake-Managed Iceberg tables (`CREATE ICEBERG TABLE`) work immediately in GCP Free Trial and enterprise accounts**.
+> * **Snowflake External Volume to GCS (`STORAGE_PROVIDER = 'GCS'`):** Uses a Snowflake-generated GCP Service Account (`STORAGE_GCP_SERVICE_ACCOUNT`, e.g., `<snowflake-gcp-service-account>@<snowflake-gcp-project>.iam.gserviceaccount.com`) granted `roles/storage.admin` on your GCS bucket. Because this uses cross-project IAM principal authorization rather than external service account keys, **Snowflake-Managed Iceberg tables (`CREATE ICEBERG TABLE`) work immediately in GCP Free Trial and enterprise accounts**.
 > * **Microsoft Fabric OneLake Connection to GCS (`GoogleCloudStorage`):** Uses a **Google Cloud Storage Interoperability XML API HMAC Key & Secret** (`GOOG1...`) associated with a GCP Service Account granted `storage.objects.get` and `storage.objects.list` (`roles/storage.objectViewer`).
 > * **If using a brand-new GCP Free Trial Organization:** Google Cloud creates a default Organization Policy constraint (`iam.disableServiceAccountKeyCreation = Enforced`) that disables the **Create a key for a service account** button in Cloud Storage $\rightarrow$ Settings $\rightarrow$ Interoperability. To enable Service Account HMAC key creation in a new GCP organization, grant yourself **Organization Policy Administrator** (`roles/orgpolicy.policyAdmin`) at the Organization node and override `iam.disableServiceAccountKeyCreation` to **Off** on your project (documented step-by-step in **Step 6** below).
 
@@ -41,7 +41,7 @@
 
 | # | Architecture Question | Complete Technical Answer |
 |---|---|---|
-| **1** | **How does Snowflake on GCP authenticate to Google Cloud Storage (GCS) for Iceberg tables compared to AWS S3?** | Unlike AWS (where you create an IAM Role and trust policy with an External ID), on **Google Cloud** you run `CREATE EXTERNAL VOLUME ... STORAGE_PROVIDER = 'GCS'` first, then run `DESC EXTERNAL VOLUME` to retrieve the Snowflake-provisioned **GCP Service Account email** (`STORAGE_GCP_SERVICE_ACCOUNT`, e.g., `<snowflake-gcp-sa>@gcpuscentral1-1dfa.iam.gserviceaccount.com`). You then grant that principal **`Storage Admin` (`roles/storage.admin`)** directly on your GCS bucket. |
+| **1** | **How does Snowflake on GCP authenticate to Google Cloud Storage (GCS) for Iceberg tables compared to AWS S3?** | Unlike AWS (where you create an IAM Role and trust policy with an External ID), on **Google Cloud** you run `CREATE EXTERNAL VOLUME ... STORAGE_PROVIDER = 'GCS'` first, then run `DESC EXTERNAL VOLUME` to retrieve the Snowflake-provisioned **GCP Service Account email** (`STORAGE_GCP_SERVICE_ACCOUNT`, e.g., `<snowflake-gcp-sa>@<snowflake-gcp-project>.iam.gserviceaccount.com`). You then grant that principal **`Storage Admin` (`roles/storage.admin`)** directly on your GCS bucket. |
 | **2** | **How does Microsoft Fabric OneLake authenticate to Google Cloud Storage (GCS) to read Iceberg files?** | Per Microsoft's official [Create a Google Cloud Storage (GCS) shortcut](https://learn.microsoft.com/en-us/fabric/onelake/create-gcs-shortcut) documentation, Fabric uses the **GCS XML Interoperability API** (`https://<gcs-iceberg-bucket>.storage.googleapis.com` or `https://storage.googleapis.com`) and authenticates using an **HMAC Access ID (`GOOG1...`) and Secret** generated for a GCP Service Account that has `storage.objects.get` and `storage.objects.list` permissions (`roles/storage.objectViewer`). |
 | **3** | **When is an On-Premises Data Gateway (OPDG) required for Snowflake on GCP and GCS?** | • **Public / Cloud Endpoint Mode (`ShareableCloud`):** If your Snowflake on GCP account and GCS bucket are not restricted by a private VPC Service Controls perimeter or IP firewall, Fabric connects directly using cloud connections (`connectivityType = "ShareableCloud"`), while **GCS Public Access Prevention remains `ON`**.<br/>• **Firewalled / Private VPC Mode (`OnPremisesGateway`):** If your Snowflake account has a Snowflake Network Policy or GCP Private Service Connect (PSC), or your GCS bucket enforces IP filtering / VPC Service Controls, Microsoft's [Create shortcuts to on-premises/network-restricted data](https://learn.microsoft.com/en-us/fabric/onelake/create-on-premises-shortcut) supports routing **both** the Snowflake connection and the Google Cloud Storage connection through a **Standard On-Premises Data Gateway (OPDG)** hosted on a Windows Server VM inside your GCP VPC (using Private Google Access for `storage.googleapis.com`). |
 | **4** | **How are GCS Iceberg tables exposed in OneLake alongside Mirrored Snowflake Managed tables?** | 1. **Managed Tables (`ACCOUNTS_MANAGED`, `REGIONS_MANAGED`, `PRODUCTS_MANAGED`, `ORDERS_MANAGED`):** Replicated continuously into OneLake Delta format via `MirroredDatabase` (`POST /v1/workspaces/{workspaceId}/mirroredDatabases`).<br/>2. **GCS Iceberg Tables (`ORDERS_ICEBERG`):** Virtualized directly into OneLake `Tables/ORDERS_ICEBERG` via a **Google Cloud Storage OneLake Shortcut** pointing to the exact table subpath (`gcs://<gcs-iceberg-bucket>/iceberg/<iceberg-table-folder>`) discovered from `SHOW ICEBERG TABLES`. OneLake automatically translates the Iceberg V2 metadata (`.metadata.json`, `.avro` manifests, and `.parquet` files) into a native Delta Lake table consumable by SQL Analytics Endpoint, Spark, and Direct Lake! |
@@ -90,19 +90,19 @@
 | `<gcp-organization-id>` | `123456789012` | Google Cloud Organization ID (if applicable) |
 | `<gcp-project-id>` | `project-xxxxxxxx-xxxx-xxxx-xxx` | Google Cloud Project ID hosting the GCS bucket |
 | `<gcp-region>` | `us-central1` | Google Cloud region matching your Snowflake on GCP region |
-| `<gcs-iceberg-bucket>` | `company-fabric-snowflake-iceberg-gcp` | GCS bucket storing Iceberg metadata and Parquet files |
-| `<snowflake-gcp-service-account>` | `xxxx@gcpuscentral1-1dfa.iam.gserviceaccount.com` | Returned by `DESC EXTERNAL VOLUME` in Snowflake |
-| `<fabric-gcs-service-account>` | `fabric-gcp-poc-admin@<gcp-project-id>.iam.gserviceaccount.com` | GCP Service Account used for Fabric GCS HMAC authentication |
+| `<gcs-iceberg-bucket>` | `<gcs-iceberg-bucket>` | GCS bucket storing Iceberg metadata and Parquet files |
+| `<snowflake-gcp-service-account>` | `xxxx@<snowflake-gcp-project>.iam.gserviceaccount.com` | Returned by `DESC EXTERNAL VOLUME` in Snowflake |
+| `<fabric-gcs-service-account>` | `<fabric-gcs-service-account>@<gcp-project-id>.iam.gserviceaccount.com` | GCP Service Account used for Fabric GCS HMAC authentication |
 | `<gcs-hmac-access-id>` | `GOOG1XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX` | GCS Interoperability HMAC Access Key ID |
 | `<gcs-hmac-secret>` | `****************************************` | GCS Interoperability HMAC Secret Key |
 | `<snowflake-gcp-account>` | `orgname-acctname` | Snowflake on GCP account identifier (`<snowflake-gcp-account>.snowflakecomputing.com`) |
-| `<snowflake-mirror-user>` | `SVC_FABRIC_MIRROR_USER` | Snowflake user configured in the Fabric Snowflake connection |
+| `<snowflake-mirror-user>` | `<snowflake-mirror-user>` | Snowflake user configured in the Fabric Snowflake connection |
 | `<snowflake-mirror-password>` | `********************` | Password for `<snowflake-mirror-user>` |
-| `<SNOWFLAKE_MIRROR_ROLE>` | `FABRIC_MIRROR_ROLE` | Snowflake role granted `USAGE`, `CREATE STREAM`, and `SELECT` privileges |
-| `<SNOWFLAKE_WAREHOUSE>` | `COMPUTE_WH` | Uppercase/exact-case Snowflake virtual warehouse name |
-| `<SNOWFLAKE_DB>` | `FABRIC_ICEBERG_GCP_DB` | Uppercase/exact-case Snowflake database name |
-| `<SNOWFLAKE_SCHEMA>` | `POC_SCHEMA` | Uppercase/exact-case Snowflake schema name |
-| `<EXTERNAL_VOLUME_NAME>` | `EXVOL_FABRIC_ICEBERG_GCS` | Snowflake External Volume object name pointing to `gcs://<gcs-iceberg-bucket>/iceberg/` |
+| `<SNOWFLAKE_MIRROR_ROLE>` | `<SNOWFLAKE_MIRROR_ROLE>` | Snowflake role granted `USAGE`, `CREATE STREAM`, and `SELECT` privileges |
+| `<SNOWFLAKE_WAREHOUSE>` | `<SNOWFLAKE_WAREHOUSE>` | Uppercase/exact-case Snowflake virtual warehouse name |
+| `<SNOWFLAKE_DB>` | `<SNOWFLAKE_DB>` | Uppercase/exact-case Snowflake database name |
+| `<SNOWFLAKE_SCHEMA>` | `<SNOWFLAKE_SCHEMA>` | Uppercase/exact-case Snowflake schema name |
+| `<EXTERNAL_VOLUME_NAME>` | `<EXTERNAL_VOLUME_NAME>` | Snowflake External Volume object name pointing to `gcs://<gcs-iceberg-bucket>/iceberg/` |
 | `<fabric-workspace-id>` | `00000000-0000-0000-0000-000000000001` | GUID of the target Microsoft Fabric workspace |
 | `<fabric-mirrored-db-id>` | `00000000-0000-0000-0000-000000000002` | GUID of the Mirrored Snowflake Database item in Fabric |
 | `<fabric-lakehouse-id>` | `00000000-0000-0000-0000-000000000003` | GUID of the Fabric Lakehouse hosting the GCS Iceberg table shortcut |
@@ -164,7 +164,7 @@ DESC EXTERNAL VOLUME <EXTERNAL_VOLUME_NAME>;
 ```
 
 From the `STORAGE_LOCATION_1` JSON in `DESC EXTERNAL VOLUME`, copy the **`STORAGE_GCP_SERVICE_ACCOUNT`** value:
-* Example: `<snowflake-gcp-service-account>` (e.g., `kpuv50000@gcpuscentral1-1dfa.iam.gserviceaccount.com`).
+* Example: `<snowflake-gcp-service-account>` (e.g., `<snowflake-gcp-service-account>@<snowflake-gcp-project>.iam.gserviceaccount.com`).
 
 ---
 
@@ -358,7 +358,7 @@ GRANT USAGE ON EXTERNAL VOLUME <EXTERNAL_VOLUME_NAME> TO ROLE <SNOWFLAKE_MIRROR_
 Per Microsoft's official [Create a Google Cloud Storage (GCS) shortcut](https://learn.microsoft.com/en-us/fabric/onelake/create-gcs-shortcut#authorization) documentation, create a dedicated GCP Service Account (`<fabric-gcs-service-account>`) with `storage.objects.get` and `storage.objects.list` permissions (`roles/storage.objectViewer` on `<gcs-iceberg-bucket>`):
 
 ```bash
-gcloud iam service-accounts create fabric-gcp-poc-admin \
+gcloud iam service-accounts create <fabric-gcs-service-account-name> \
   --display-name="Fabric OneLake GCS Shortcut Service Account" \
   --project=<gcp-project-id>
 
